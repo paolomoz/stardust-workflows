@@ -1,0 +1,129 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://stardust.dev/schemas/optimize-findings.schema.json",
+  "title": "stardust optimize/findings.json",
+  "description": "The site-optimization findings ledger. stardust:optimize runs the 7 detection layers and appends findings; the resolving phase (direct/prototype/migrate for design-pass, deploy for platform-migration) flips status to fixed and stamps resolvedBy. Append-only runs[]; findings[] are updated in place by status.",
+  "type": "object",
+  "required": ["_provenance", "runs", "findings"],
+  "additionalProperties": false,
+  "properties": {
+    "_provenance": { "$ref": "#/$defs/provenance" },
+    "runs": {
+      "type": "array",
+      "description": "Append-only audit trail of optimize invocations.",
+      "items": { "$ref": "#/$defs/run" }
+    },
+    "findings": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/finding" }
+    }
+  },
+  "$defs": {
+    "provenance": {
+      "type": "object",
+      "required": ["writtenBy", "writtenAt", "stardustVersion"],
+      "properties": {
+        "writtenBy": { "type": "string", "examples": ["stardust:optimize"] },
+        "writtenAt": { "type": "string", "format": "date-time" },
+        "stardustVersion": { "type": "string" }
+      }
+    },
+    "layer": {
+      "type": "string",
+      "enum": [
+        "brand-tensions",
+        "design-ux",
+        "accessibility",
+        "seo",
+        "content-conversion",
+        "ai-search",
+        "cross-page"
+      ],
+      "description": "The 7 detection layers ported from the stardust audit."
+    },
+    "run": {
+      "type": "object",
+      "required": ["id", "at", "layersRun"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "at": { "type": "string", "format": "date-time" },
+        "scopePages": {
+          "type": "array",
+          "description": "Slugs this run covered (empty/absent = whole site).",
+          "items": { "type": "string" }
+        },
+        "layersRun": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/layer" }
+        },
+        "trigger": {
+          "type": "string",
+          "enum": ["baseline", "verify", "manual"],
+          "description": "baseline = after extract; verify = after prototype/migrate; manual = standalone invocation."
+        }
+      }
+    },
+    "finding": {
+      "type": "object",
+      "required": ["id", "layer", "check", "severity", "scope", "fixability", "status"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "layer": { "$ref": "#/$defs/layer" },
+        "check": {
+          "type": "string",
+          "description": "Check id within the layer (e.g. 'ad-hoc-type-scale', 'fragmented-cta-voice', 'computed-contrast', 'cls-layout-shift'). Catalog grows in optimize/reference/checks.md without a schema change."
+        },
+        "severity": { "type": "string", "enum": ["P1", "P2", "P3"] },
+        "scope": {
+          "type": "object",
+          "required": ["level", "ids"],
+          "additionalProperties": false,
+          "properties": {
+            "level": { "type": "string", "enum": ["site", "template", "page", "block"] },
+            "ids": {
+              "type": "array",
+              "description": "The site (single sentinel), template ids, slugs, or block ids the finding applies to.",
+              "items": { "type": "string" }
+            }
+          }
+        },
+        "evidence": {
+          "type": "string",
+          "description": "The captured, specific evidence (e.g. 'headings 48/44/40/32 cluster at ratio 1.09-1.10' or '21 distinct CTA labels across 2 intent buckets')."
+        },
+        "fixability": {
+          "type": "string",
+          "enum": ["design-pass", "platform-migration", "out-of-scope"],
+          "description": "design-pass = the redesign fixes it (direct/prototype/migrate). platform-migration = resolved by the platform migration/regeneration (deploy). out-of-scope = infrastructure/TLS/external (informational)."
+        },
+        "recommendedMove": {
+          "type": "string",
+          "description": "The specific redesign/migration move that resolves it (e.g. 'impose a perfect-fourth modular scale', 'collapse to one canonical primary CTA')."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["open", "in-progress", "fixed", "accepted", "wontfix"],
+          "description": "accepted = acknowledged design-pass finding intentionally left as-is by the user; wontfix = out-of-scope or declined."
+        },
+        "contentEdit": {
+          "type": "boolean",
+          "default": false,
+          "description": "True when resolving this finding requires a content modification (gates the content-fidelity dial: only design-pass findings in {content-conversion, seo} may justify an optimized-mode edit)."
+        },
+        "resolvedBy": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "properties": {
+            "phase": { "type": "string", "enum": ["direct", "prototype", "migrate", "deploy"] },
+            "artifact": { "type": "string", "description": "The file that realizes the fix." },
+            "at": { "type": "string", "format": "date-time" },
+            "note": { "type": "string" }
+          }
+        },
+        "firstSeenRun": { "type": "string", "description": "run id where the finding was first detected." }
+      }
+    }
+  }
+}

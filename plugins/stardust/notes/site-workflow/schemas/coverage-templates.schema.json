@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://stardust.dev/schemas/coverage-templates.schema.json",
+  "title": "stardust coverage/templates.json",
+  "description": "Template coverage ledger. A template is the design structure shared by a set of pages (a typed archetype + its canon). Tracks archetype-approval status, the pages it governs, the blocks it composes, and migration/delivery coverage. Owned by stardust:site.",
+  "type": "object",
+  "required": ["_provenance", "templates"],
+  "additionalProperties": false,
+  "properties": {
+    "_provenance": { "$ref": "#/$defs/provenance" },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "templates": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/template" }
+    }
+  },
+  "$defs": {
+    "provenance": {
+      "type": "object",
+      "required": ["writtenBy", "writtenAt", "stardustVersion"],
+      "properties": {
+        "writtenBy": { "type": "string", "examples": ["stardust:site"] },
+        "writtenAt": { "type": "string", "format": "date-time" },
+        "readArtifacts": { "type": "array", "items": { "type": "string" } },
+        "synthesizedInputs": { "type": "array", "items": { "type": "string" } },
+        "stardustVersion": { "type": "string" }
+      }
+    },
+    "template": {
+      "type": "object",
+      "required": ["id", "type", "status"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Template identity. May equal the page type, or differentiate multiple archetypes of one type (e.g. landing-home vs landing-campaign)."
+        },
+        "label": { "type": "string" },
+        "type": {
+          "type": "string",
+          "enum": ["landing", "article", "listing", "program", "form", "static", "unique"],
+          "description": "The stardust page type this template specializes. Catalog is per-site and extensible at direct --prep."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["candidate", "confirmed", "archetype-approved", "canon-folded"],
+          "description": "candidate (inferred) -> confirmed (user-accepted) -> archetype-approved (representative prototype approved) -> canon-folded (folded into stardust/canon)."
+        },
+        "archetypeSlug": {
+          "type": ["string", "null"],
+          "description": "The representative page whose approved prototype defines this template (Path A' source for siblings)."
+        },
+        "pages": {
+          "type": "array",
+          "description": "Slugs this template governs.",
+          "items": { "type": "string" }
+        },
+        "pageCount": { "type": "integer", "minimum": 0 },
+        "blocks": {
+          "type": "array",
+          "description": "Block ids this template composes. References coverage/blocks.json[].id.",
+          "items": { "type": "string" }
+        },
+        "coverage": {
+          "type": "object",
+          "description": "Counts of this template's pages that have reached each milestone. Percentages are pageCount-relative.",
+          "additionalProperties": false,
+          "properties": {
+            "prototyped": { "type": "integer", "minimum": 0 },
+            "migrated": { "type": "integer", "minimum": 0 },
+            "delivered": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "depth": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 6,
+          "description": "Representative depth across this template's pages (typically the min, so 'done' means every page reached it)."
+        }
+      }
+    }
+  }
+}

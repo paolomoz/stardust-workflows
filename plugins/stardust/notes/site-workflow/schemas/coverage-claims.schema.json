@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://stardust.dev/schemas/coverage-claims.schema.json",
+  "title": "stardust coverage/claims.json",
+  "description": "Parallel-agent lease file. Each agent claims a non-overlapping work unit (template cluster or page batch slice) and a frozen brief before working, so parallel agents cannot overlap, drift from the locked direction/canon, or take shortcuts. stardust:site is the only writer that grants/reclaims; agents update only their own claim's heartbeat and status.",
+  "type": "object",
+  "required": ["_provenance", "claims"],
+  "additionalProperties": false,
+  "properties": {
+    "_provenance": { "$ref": "#/$defs/provenance" },
+    "claims": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/claim" }
+    }
+  },
+  "$defs": {
+    "provenance": {
+      "type": "object",
+      "required": ["writtenBy", "writtenAt", "stardustVersion"],
+      "properties": {
+        "writtenBy": { "type": "string", "examples": ["stardust:site"] },
+        "writtenAt": { "type": "string", "format": "date-time" },
+        "stardustVersion": { "type": "string" }
+      }
+    },
+    "claim": {
+      "type": "object",
+      "required": ["id", "phase", "scope", "frozenBrief", "status", "acquiredAt"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "description": "Claim id; also the fragment filename coverage/fragments/<id>.json." },
+        "agent": { "type": "string", "description": "Identifier of the agent holding the claim." },
+        "phase": {
+          "type": "string",
+          "enum": ["extract", "direct", "prototype", "optimize", "migrate", "deploy"],
+          "description": "Which pipeline phase this claim parallelizes."
+        },
+        "scope": {
+          "type": "object",
+          "required": ["kind", "ids"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": ["template", "page-batch", "block-cluster"]
+            },
+            "ids": {
+              "type": "array",
+              "description": "The exact, non-overlapping unit ids (template ids, slugs, or block ids) this agent owns.",
+              "items": { "type": "string" },
+              "minItems": 1
+            }
+          }
+        },
+        "frozenBrief": {
+          "type": "object",
+          "description": "The pinned inputs the agent may use. site rejects a fragment at merge time if these shas no longer match the active direction/canon (catches a drifted or stale agent).",
+          "required": ["directionSha", "canonSha"],
+          "additionalProperties": false,
+          "properties": {
+            "directionSha": { "type": "string" },
+            "canonSha": { "type": "string" },
+            "templateArchetype": { "type": ["string", "null"], "description": "Approved archetype slug the agent forks (Path A')." },
+            "pages": { "type": "array", "items": { "type": "string" } },
+            "findingIds": {
+              "type": "array",
+              "description": "The optimize findings in scope this agent is responsible for resolving. It may not mark findings outside this list fixed.",
+              "items": { "type": "string" }
+            },
+            "blockContract": {
+              "type": "array",
+              "description": "Block ids + slot shapes the agent must honour without redefining.",
+              "items": { "type": "string" }
+            }
+          }
+        },
+        "invariants": {
+          "type": "array",
+          "description": "The no-drift / no-shortcut rules re-checked by site at merge time. Declared here for auditability.",
+          "items": { "type": "string" },
+          "default": [
+            "must-not-re-derive-direction",
+            "must-not-mint-canon",
+            "must-not-retype-out-of-scope-pages",
+            "must-not-mark-foreign-findings-fixed",
+            "must-not-skip-validation-gates"
+          ]
+        },
+        "status": {
+          "type": "string",
+          "enum": ["held", "released", "completed", "reclaimed", "rejected"],
+          "description": "held = active; completed = fragment written & ready to merge; reclaimed = lease expired and reassigned; rejected = failed merge validation."
+        },
+        "acquiredAt": { "type": "string", "format": "date-time" },
+        "heartbeatAt": { "type": "string", "format": "date-time", "description": "Updated by the agent; a stale heartbeat lets site reclaim the scope." },
+        "fragmentPath": { "type": ["string", "null"], "description": "coverage/fragments/<id>.json the agent wrote; merged by site." }
+      }
+    }
+  }
+}

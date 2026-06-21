@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://stardust.dev/schemas/state-extensions.schema.json",
+  "title": "stardust state.json — site-workflow extensions",
+  "description": "Additive, backward-compatible extensions to the existing stardust/state.json (schema in skills/stardust/reference/state-machine.md). This document describes ONLY the new optional keys; existing keys (_provenance, site, direction, pages[]) are unchanged. Skills predating these keys keep working; absence means 'not yet tracked'.",
+  "type": "object",
+  "properties": {
+    "site": {
+      "type": "object",
+      "description": "Existing site block, with one added optional key.",
+      "properties": {
+        "delivery": {
+          "type": "object",
+          "description": "NEW. Platform delivery summary for the active target.",
+          "additionalProperties": false,
+          "properties": {
+            "target": { "type": "string", "examples": ["aem-eds"] },
+            "deployUrl": { "type": ["string", "null"], "format": "uri" },
+            "status": {
+              "type": "string",
+              "enum": ["not-started", "in-progress", "partial", "complete"]
+            }
+          }
+        }
+      }
+    },
+    "pages": {
+      "type": "array",
+      "description": "Existing pages[]; each entry gains the following optional keys.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "depth": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 6,
+            "description": "NEW. Projection of status onto the depth ladder (0 discovered .. 6 delivered)."
+          },
+          "templateId": { "type": ["string", "null"], "description": "NEW. coverage/templates.json[].id governing this page." },
+          "contentMode": { "type": "string", "enum": ["verbatim", "optimized"], "default": "verbatim", "description": "NEW." },
+          "batchId": { "type": ["string", "null"], "description": "NEW. Iteration batch that last advanced this page." }
+        }
+      }
+    },
+    "campaign": {
+      "type": "object",
+      "description": "NEW top-level optional block. Owned by stardust:site.",
+      "additionalProperties": false,
+      "properties": {
+        "activeBatch": { "type": ["string", "null"] },
+        "targets": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Delivery targets configured for this campaign (e.g. ['aem-eds'])."
+        },
+        "iterations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "selector", "targetDepth", "openedAt"],
+            "additionalProperties": false,
+            "properties": {
+              "id": { "type": "string" },
+              "selector": {
+                "type": "object",
+                "description": "What the batch selected.",
+                "properties": {
+                  "kind": { "type": "string", "enum": ["slugs", "template", "type", "glob", "all"] },
+                  "value": {}
+                }
+              },
+              "targetDepth": { "type": "integer", "minimum": 0, "maximum": 6 },
+              "openedAt": { "type": "string", "format": "date-time" },
+              "closedAt": { "type": ["string", "null"], "format": "date-time" }
+            }
+          }
+        }
+      }
+    },
+    "optimize": {
+      "type": "object",
+      "description": "NEW top-level optional block. Pointer + summary so the master report needn't open the full ledger.",
+      "additionalProperties": false,
+      "properties": {
+        "lastRunAt": { "type": ["string", "null"], "format": "date-time" },
+        "findingsPath": { "type": "string", "default": "stardust/optimize/findings.json" },
+        "scorecardPath": { "type": "string", "default": "stardust/optimize/scorecard.json" },
+        "overallHealth": { "type": ["integer", "null"], "minimum": 0, "maximum": 100 },
+        "openP1": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

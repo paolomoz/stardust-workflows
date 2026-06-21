@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://stardust.dev/schemas/coverage-blocks.schema.json",
+  "title": "stardust coverage/blocks.json",
+  "description": "Content-block coverage ledger. Unifies brand modules (DESIGN.json.extensions.modules[]) and section archetypes (data-* tagged prototype sections). Tracks slots, template usage, instance counts, redesign + content status, optimize findings, and per-target delivery. Owned by stardust:site; delivery overlay written by deploy.",
+  "type": "object",
+  "required": ["_provenance", "blocks"],
+  "additionalProperties": false,
+  "properties": {
+    "_provenance": { "$ref": "#/$defs/provenance" },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "blocks": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/block" }
+    }
+  },
+  "$defs": {
+    "provenance": {
+      "type": "object",
+      "required": ["writtenBy", "writtenAt", "stardustVersion"],
+      "properties": {
+        "writtenBy": { "type": "string", "examples": ["stardust:site"] },
+        "writtenAt": { "type": "string", "format": "date-time" },
+        "readArtifacts": { "type": "array", "items": { "type": "string" } },
+        "synthesizedInputs": { "type": "array", "items": { "type": "string" } },
+        "stardustVersion": { "type": "string" }
+      }
+    },
+    "block": {
+      "type": "object",
+      "required": ["id", "kind"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "label": { "type": "string" },
+        "kind": {
+          "type": "string",
+          "enum": ["chrome", "module", "section"],
+          "description": "chrome = header/footer; module = brand module with typed slots; section = a reusable section archetype."
+        },
+        "slots": {
+          "type": "array",
+          "description": "Typed slots for module/section blocks (from DESIGN.json.extensions.modules[].slots).",
+          "items": {
+            "type": "object",
+            "required": ["name", "type"],
+            "additionalProperties": false,
+            "properties": {
+              "name": { "type": "string" },
+              "type": { "type": "string", "examples": ["text", "richtext", "image", "link", "list"] },
+              "required": { "type": "boolean", "default": false },
+              "default": { "type": ["string", "null"] }
+            }
+          }
+        },
+        "usedByTemplates": {
+          "type": "array",
+          "description": "Template ids that compose this block. References coverage/templates.json[].id.",
+          "items": { "type": "string" }
+        },
+        "instanceCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "How many page instances deploy this block."
+        },
+        "generation": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "redesignStatus": {
+              "type": "string",
+              "enum": ["pending", "prototyped", "canonized"],
+              "default": "pending"
+            },
+            "contentStatus": {
+              "type": "string",
+              "enum": ["verbatim", "optimized", "mixed"],
+              "default": "verbatim",
+              "description": "Aggregate content mode across this block's instances."
+            },
+            "canonicalRendering": {
+              "type": ["string", "null"],
+              "description": "Path to stardust/canon/modules/<id>.html when canonized."
+            }
+          }
+        },
+        "optimize": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "findingIds": {
+              "type": "array",
+              "description": "optimize/findings.json finding ids whose scope touches this block.",
+              "items": { "type": "string" }
+            }
+          }
+        },
+        "delivery": {
+          "type": "object",
+          "description": "Per-target overlay filled by deploy.",
+          "additionalProperties": false,
+          "properties": {
+            "target": { "type": "string", "examples": ["aem-eds"] },
+            "edsBlockName": {
+              "type": ["string", "null"],
+              "description": "The EDS block name this block was converted to (blocks/<name>/)."
+            },
+            "status": {
+              "type": "string",
+              "enum": ["pending", "converted", "deployed", "verified", "failed"]
+            },
+            "blockPath": { "type": ["string", "null"] }
+          }
+        },
+        "depth": { "type": "integer", "minimum": 0, "maximum": 6 }
+      }
+    }
+  }
+}
