@@ -167,15 +167,30 @@ Blocks       19 total   ·  17 converted to EDS   ·  2 pending
 Verify      3 link failures on /resources/* (see report)
 ```
 
-## 8. Phasing (build order — not part of this deliverable)
+## 8. Phasing (build order)
+
+> **Design commitment (recorded for later phases).** Block **dedup** and
+> **optimize** are not afterthoughts — both must become **first-class steps in
+> the rollout flow**, not post-hoc reconciliation or an optional side-audit:
+> - **Block dedup** should drive conversion *up front* (decide the distinct
+>   block set and canonical EDS names before/at conversion, so each block is
+>   converted exactly once), rather than the reconcile-after-the-fact stopgap
+>   described in § 4. Achieving this cleanly may require the small optional
+>   `deploy` block-name-map input noted in § 10.1.
+> - **optimize** (the detect → fix → verify audit) should run *inside* the
+>   rollout flow as a gate on delivery quality, not bolted on after.
+> These are deferred to a future phase but are committed design intent; P1 is
+> built so they slot in without rework.
 
 - **P1 — Inventory + delivery loop.** Build `rollout/coverage/*` from the
   migrated outputs; deliver the site by calling `deploy` per page; track
   `pages.delivery`. Deliverable: a whole site pushed to AEM with live coverage.
-- **P2 — Block dedup + site assembly + verify.** Block reconciliation +
-  `blocks.json`; fragments/sitemap; full-site verification + stale re-delivery.
-  Deliverable: efficient, coherent, re-runnable full-site rollout.
-- **P3 — Dashboard.** The self-contained visual progress dashboard over rollout
+- **P2 — Block dedup (first-class) + site assembly + verify.** Dedup-driven
+  conversion + `blocks.json`; fragments/sitemap; full-site verification + stale
+  re-delivery. Deliverable: efficient, coherent, re-runnable full-site rollout.
+- **P3 — optimize in the flow.** Re-introduce the detect → fix → verify audit as
+  an in-flow delivery-quality gate.
+- **P4 — Dashboard.** The self-contained visual progress dashboard over rollout
   coverage. Deliverable: at-a-glance delivery status.
 
 ## 9. Reference map
