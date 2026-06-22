@@ -7,9 +7,12 @@ The contract the two scripts maintain. Design rationale is in
 
 | File | Writer | Contract |
 |---|---|---|
-| `rollout.json` | inventory + update-coverage | target + DA config + `lastRun` counts |
-| `coverage/pages.json` | inventory (rows) + update-coverage (delivery) | one row per migrated page |
-| `coverage/templates.json` | inventory + update-coverage | pages grouped by `templateId` + roll-ups |
+| `rollout.json` | inventory + blocks + update-coverage + verify | target + DA config + `lastRun` counts |
+| `coverage/pages.json` | inventory (rows) + update-coverage/verify (delivery) | one row per migrated page |
+| `coverage/templates.json` | inventory + roll-up writers | pages grouped by `templateId` + roll-ups |
+| `coverage/blocks.json` | blocks (rows) + update-coverage (delivery) | one row per **distinct** block (dedup unit) |
+| `plan.json` | plan | dedup-driven delivery order + per-page convert/reuse |
+| `site/{sitemap.xml,robots.txt,manifest.json}` | assemble | site-level artifacts |
 
 `rollout` writes nothing outside this directory. `stardust/migrated/`,
 `state.json`, and the rest of the agnostic core are read-only inputs.
@@ -47,11 +50,45 @@ On every `inventory.mjs` run:
 - Pages are keyed by `slug` (from the `_meta.json` sidecar, else derived from the
   delivered path). The `assets/` bundle is never inventoried.
 
+## Block delivery status lifecycle
+
+```
+  pending ──► converted ──► deployed ──► verified
+     ▲            (the distinct block is converted ONCE, on its
+     └─ blocks.mjs  conversion point in plan.json; siblings reuse it)
+```
+
+- **pending** — inventoried as a distinct block, not yet converted.
+- **converted** — its EDS block (`blocks/<edsBlockName>/`) or fragment exists.
+- **deployed / verified** — live on the delivered site.
+
+`blocks.mjs` is idempotent: a block already past `pending` keeps its status and
+`edsBlockName`; only still-`pending` blocks get a freshly derived name.
+
+## Dedup contract (plan.json)
+
+`plan.mjs` guarantees each distinct **module** block is converted on exactly one
+page (the first in delivery order that uses it). Per page it emits:
+- `convert[]` — blocks introduced here → `deploy` creates them;
+- `reuse[]` — blocks already converted → `deploy`'s Step-7 brief reuses them by
+  `edsBlockName`, never recreating.
+
+Chrome (`header`/`nav`/`footer`) is not per-page; it's listed once under
+`plan.json.fragments` and delivered as static fragments.
+
+## Verify
+
+`verify.mjs` flips delivered pages to `verified` or `failed` based on: reachable
+(HTTP 200 / file present), no `about:error` in the body, and every internal
+`href="/…"` resolving to a known delivered path. Offline `--root <dir>` mode maps
+each delivered path back to a file for testing against a local export.
+
 ## Roll-ups
 
-`update-coverage.mjs` and `inventory.mjs` both re-derive, from `pages.json`:
+`update-coverage.mjs`, `inventory.mjs`, `blocks.mjs`, and `verify.mjs` all
+re-derive, from the per-unit rows:
 - each template's `{ verified, deployed, pending }` in `templates.json`;
-- the site-wide `lastRun.pages` counts in `rollout.json`.
+- the site-wide `lastRun.pages` + `lastRun.blocks` counts in `rollout.json`.
 
-So the counts never drift from the per-page truth — they are always recomputed,
+So the counts never drift from the per-unit truth — they are always recomputed,
 never incremented.

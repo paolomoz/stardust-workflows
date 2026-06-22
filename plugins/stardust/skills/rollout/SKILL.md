@@ -16,10 +16,11 @@ page, tracking delivery coverage so you always know what's done and what's left.
 coverage model, and the phasing are in
 [`notes/rollout/PLAN.md`](../../notes/rollout/PLAN.md).
 
-> **This is Phase 1** (inventory + delivery loop + page coverage). Block **dedup**
-> and **optimize** are committed first-class steps deferred to later phases — see
-> § Not yet built and PLAN § 8. Do not bolt them on here; Phase 1 is built so they
-> slot in without rework.
+> **Phases 1–2 are built**: inventory + page coverage (P1), and **first-class
+> block dedup + site assembly + full-site verify** (P2). **optimize** (the
+> detect → fix → verify quality gate) and the **dashboard** remain committed
+> first-class steps deferred to later phases — see § Not yet built and PLAN § 8.
+> Do not bolt those on here.
 
 ## When to use
 
@@ -70,62 +71,99 @@ preserved; a page whose migrated HTML changed after it was delivered is
 re-flagged `stale`. Re-run it any time `migrate` re-emits pages.
 
 Fill in the DA coordinates in `stardust/rollout/rollout.json` (`site.da.org`,
-`site.site`, `site.da.ref`) if the inventory didn't infer them — `deploy` needs
-them for the push.
+`site.site`, `site.da.ref`, and `site.liveHost`) if the inventory didn't infer
+them — `deploy` needs them for the push and `verify` needs the host.
 
-### Phase B — Deliver the site (drive `deploy` per page)
+### Phase B — Block dedup plan (FIRST-CLASS, before any conversion)
 
-Deliver every page whose `delivery.status` is `pending`, `stale`, or `failed`.
-Order: **representative page of each template first** (read
-`templates.json[].representativeSlug`), then its siblings — so block treatments
-are settled once per template before the bulk of its pages go out.
+Derive the distinct block set and the dedup-driven delivery plan **up front** —
+this is what makes "convert each block once" a driving step, not a cleanup:
 
-For each page to deliver:
+```bash
+node skills/rollout/scripts/blocks.mjs   # → coverage/blocks.json (the dedup unit)
+node skills/rollout/scripts/plan.mjs     # → plan.json + a readable conversion plan
+```
 
-1. **Convert + push** the page's migrated HTML (`source.migratedHtml`) to AEM by
-   following the `deploy` methodology in `skills/deploy/SKILL.md` (section→block,
-   static fragments, `metadata` block, body-fragment write via the DA Source API
-   per `da-deploy-protocol.md`). `rollout` does not reimplement any of this — it
-   invokes `deploy` page by page.
-2. **Record the outcome** in the ledger with the state-writer (keeps the run
-   honest and resumable — never hand-edit `pages.json`):
+- `blocks.mjs` collapses every block instance across the site (the per-page
+  `modules` + chrome) into the **distinct** set, assigns each a canonical
+  `edsBlockName` (kebab; reserved-class-guarded per deploy #15), and records
+  `usedByPages` / `instanceCount`. Chrome (`header`/`nav`/`footer`) is marked
+  `kind: chrome` → delivered as site-wide fragments, not per-page blocks.
+- `plan.mjs` orders pages **representative-first per template**, walks them once,
+  and assigns each distinct block a **single conversion point**: the first page
+  in order that uses it CONVERTS it; every later page REUSES it by name. The
+  per-page `convert` / `reuse` lists are exactly `deploy`'s Step-7 brief input
+  (*"Existing blocks — REUSE, do not recreate: …"*), so each block converts once
+  **without changing deploy**.
+
+### Phase C — Deliver the site (drive `deploy` per page, per the plan)
+
+Walk `plan.json.steps` in order (representative pages first). For each page:
+
+1. **Convert + push** the page's migrated HTML (`source.migratedHtml`) to AEM via
+   the `deploy` methodology (`skills/deploy/SKILL.md`). **Pass the page's plan
+   step into deploy's brief**: create only the blocks in `convert`; for every
+   block in `reuse`, instruct deploy to REUSE the existing block by its
+   `edsBlockName` (do not recreate). This is the dedup contract in action.
+2. **Record outcomes** with the state-writer (never hand-edit the ledger):
 
    ```bash
    node skills/rollout/scripts/update-coverage.mjs <slug> --status converting
+   # for each block this page converts:
+   node skills/rollout/scripts/update-coverage.mjs --block <id> --status converted --eds-name <name>
    # … run the deploy steps …
    node skills/rollout/scripts/update-coverage.mjs <slug> --status deployed --url <branch-preview-url>
    ```
 
-   On failure: `--status failed --error "<reason>"` and continue to the next page
-   (one page's failure never aborts the site rollout — mirrors `migrate`).
+   On failure: `--status failed --error "<reason>"` and continue (one page's
+   failure never aborts the rollout — mirrors `migrate`).
 
-3. **Verify** the delivered page renders (200, blocks decorate, no
-   `about:error`), then:
+Parallelism: deliver multiple template clusters concurrently (one agent per
+cluster, non-overlapping page sets), as `deploy` Step 7 dispatches per-archetype
+agents. **Deliver each template's representative — the page that converts that
+template's blocks — before its siblings**, so the blocks exist to be reused. The
+state-writer is per-unit so concurrent updates don't collide.
 
-   ```bash
-   node skills/rollout/scripts/update-coverage.mjs <slug> --status verified
-   ```
+### Phase D — Site assembly (whole-site artifacts)
 
-Parallelism: you may deliver multiple template clusters concurrently (one agent
-per cluster, non-overlapping page sets), exactly as `deploy` Step 7 dispatches
-per-archetype agents. The state-writer is per-slug so concurrent updates don't
-collide. (How light the cross-page coordination can be is PLAN § 10 open
-question 4 — keep it simple in Phase 1: partition by template, no shared locks.)
+```bash
+node skills/rollout/scripts/assemble.mjs   # → rollout/site/{sitemap.xml,robots.txt,manifest.json}
+```
 
-### Phase C — Report
+Generates the artifacts that only make sense site-wide: `sitemap.xml` +
+`robots.txt` from the delivered paths, and a **fragments manifest** mapping the
+chrome blocks to `fragments/header.html` / `fragments/footer.html` with their
+`canon/*.html` source. `deploy` lifts and pushes the actual fragment content
+(Step 6); `assemble` prepares and records what to push.
 
-Re-run the inventory (or read `rollout.json.lastRun`) and print the counts:
+### Phase E — Full-site verify
+
+```bash
+node skills/rollout/scripts/verify.mjs            # uses rollout.json site.liveHost
+# or: --base <url>   (explicit host)   |   --root <dir>   (offline, against a local export)
+```
+
+For every delivered page, `verify` confirms it's reachable (HTTP 200), has no
+`about:error` (broken-image ingestion, deploy #75), and that every internal
+`href="/…"` resolves to a known delivered path — then flips each page to
+`verified` or `failed` with the reason. It exits non-zero if any page failed.
+
+### Phase F — Report
+
+Read `rollout.json.lastRun` (or re-run `inventory.mjs`) and print the counts:
 
 ```
 rollout — <site> → aem-eds
 ==================================================
 Pages       <N> total · <v> verified · <d> deployed · <p> pending · <s> stale
 Templates   <T> (per-template delivered/total)
+Blocks      <B> total · <c> converted · <p> pending
 To deliver  <list of remaining slugs>
 ```
 
 Surface anything still `pending`/`stale`/`failed` as the explicit "what's
-missing" list. Re-running Phase B picks up exactly those pages.
+missing" list. Re-run from Phase B/C to pick up exactly those pages; when
+`migrate` re-emits a page, `inventory` re-flags it `stale` and it re-delivers.
 
 ## Inputs
 
@@ -141,32 +179,37 @@ missing" list. Re-running Phase B picks up exactly those pages.
 |---|---|
 | `stardust/rollout/coverage/pages.json` | per-page delivery ledger (schema: `schemas/rollout-pages.schema.json`) |
 | `stardust/rollout/coverage/templates.json` | template grouping + roll-ups (schema: `schemas/rollout-templates.schema.json`) |
+| `stardust/rollout/coverage/blocks.json` | the block dedup ledger + EDS mapping (schema: `schemas/rollout-blocks.schema.json`) |
+| `stardust/rollout/plan.json` | dedup-driven delivery order + per-page convert/reuse briefs |
 | `stardust/rollout/rollout.json` | config + `lastRun` summary (schema: `schemas/rollout-config.schema.json`) |
+| `stardust/rollout/site/{sitemap.xml,robots.txt,manifest.json}` | site-level assembly artifacts |
 | the delivered EDS site | produced by `deploy` per page (blocks/, content/, fragments — owned by `deploy`) |
 
 `rollout` writes **only** under `stardust/rollout/`. It never modifies the
 agnostic core, `state.json`, or `migrated/` — those are read-only inputs.
 
-## What rollout does NOT do (Phase 1)
+## What rollout does NOT do (yet)
 
-- **Block dedup is not yet first-class.** In Phase 1 each page is converted via
-  `deploy` independently, so a block shared by many pages may be converted more
-  than once. Phase 2 makes dedup a driving step (convert each distinct block
-  once; canonical EDS names up front). The `blocks` field is already inventoried
-  per page so Phase 2 has its input. Do not add ad-hoc reconciliation here.
 - **No optimize/audit.** The detect → fix → verify quality gate returns as a
   first-class in-flow step in a later phase (PLAN § 8). Not bolted on now.
-- **No dashboard.** Visual progress dashboard is a later phase; Phase 1 reports
-  counts to the terminal + the `lastRun` summary.
+- **No dashboard.** The visual progress dashboard is a later phase; for now
+  rollout reports counts to the terminal + the `lastRun` summary.
 - **No redesign.** `rollout` never edits content or design; it delivers what
   `migrate` produced.
 - **No new transport.** Delivery is `deploy`'s DA Source API path, unchanged.
 
 ## Scripts
 
-- `scripts/inventory.mjs` — migrated tree → coverage (idempotent; stale-aware).
-- `scripts/update-coverage.mjs` — deterministic per-page delivery state-writer;
-  re-derives template + config roll-ups.
+- `scripts/inventory.mjs` — migrated tree → page + template coverage (idempotent;
+  stale-aware).
+- `scripts/blocks.mjs` — distinct-block dedup ledger (`blocks.json`).
+- `scripts/plan.mjs` — dedup-driven delivery order + per-page convert/reuse briefs.
+- `scripts/update-coverage.mjs` — deterministic delivery state-writer for pages
+  (`<slug> --status …`) and blocks (`--block <id> --status …`); re-derives all
+  roll-ups.
+- `scripts/assemble.mjs` — site-level sitemap / robots / fragments manifest.
+- `scripts/verify.mjs` — full-site verification (HTTP or offline `--root`).
+- `scripts/lib.mjs` — shared IO + roll-up helpers (counts always recomputed).
 
 ## References
 
