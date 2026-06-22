@@ -12,6 +12,8 @@ The contract the two scripts maintain. Design rationale is in
 | `coverage/templates.json` | inventory + roll-up writers | pages grouped by `templateId` + roll-ups |
 | `coverage/blocks.json` | blocks (rows) + update-coverage (delivery) | one row per **distinct** block (dedup unit) |
 | `plan.json` | plan | dedup-driven delivery order + per-page convert/reuse |
+| `optimize/findings.json` | optimize | in-flow quality findings (detect→fix→verify) |
+| `optimize/scorecard.json` | optimize | per-layer health + overall + history |
 | `site/{sitemap.xml,robots.txt,manifest.json}` | assemble | site-level artifacts |
 
 `rollout` writes nothing outside this directory. `stardust/migrated/`,
@@ -82,6 +84,22 @@ Chrome (`header`/`nav`/`footer`) is not per-page; it's listed once under
 (HTTP 200 / file present), no `about:error` in the body, and every internal
 `href="/…"` resolving to a known delivered path. Offline `--root <dir>` mode maps
 each delivered path back to a file for testing against a local export.
+
+## Optimize gate (findings lifecycle)
+
+```
+  open ──(no longer detected, in scope)──► fixed ──(regression)──► open
+   │                                                                ▲
+   ├──(human)──► accepted / wontfix  (never auto-reopened)          │
+   └────────────────────── still detected ─────────────────────────┘
+```
+
+`optimize.mjs` is the delivery-quality gate. It writes `optimize/findings.json`
+(append-only `runs[]` + status-tracked `findings[]`) and `optimize/scorecard.json`
+(per-layer 0–100, `null` for unassessed judgment layers, + `history[]`). The gate
+exits non-zero while any **open P1** is in scope; fixability routes the fix
+(platform-migration → rollout re-deploys; design-pass → upstream; out-of-scope →
+informational). See `checks.md` for the catalog.
 
 ## Roll-ups
 

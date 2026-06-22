@@ -3,8 +3,8 @@
  * counts from the same per-unit truth (counts are always recomputed, never
  * incremented).
  */
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, statSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 
 export function readJSON(path, fallback = null) {
   try { return JSON.parse(readFileSync(path, 'utf8')); } catch { return fallback; }
@@ -76,3 +76,25 @@ export function edsName(id) {
 /** Chrome ids deliver as static fragments, not per-page blocks. */
 export const CHROME_IDS = new Set(['header', 'nav', 'footer']);
 export const kindOf = (id) => (CHROME_IDS.has(String(id).toLowerCase()) ? 'chrome' : 'module');
+
+/** Map a delivered (extensionless) path to a file under root (migrated-tree shape). */
+export function resolveLocalFile(root, p) {
+  const candidates = p === '/' ? ['index.html'] : [`${p.slice(1)}.html`, `${p.slice(1)}/index.html`, p.slice(1)];
+  for (const c of candidates) { const f = join(root, c); if (existsSync(f) && statSync(f).isFile()) return f; }
+  return null;
+}
+
+/** Load a page's HTML by HTTP (base) or from a local root. Returns {ok, body, reason}. */
+export async function loadPageHTML(page, { root, base }) {
+  if (root) {
+    const f = resolveLocalFile(root, page.path);
+    if (!f) return { ok: false, reason: `not found under ${root}` };
+    return { ok: true, body: readFileSync(f, 'utf8') };
+  }
+  try {
+    const res = await fetch(`${base}${page.path}`);
+    const body = await res.text();
+    if (!res.ok) return { ok: false, reason: `HTTP ${res.status}` };
+    return { ok: true, body };
+  } catch (e) { return { ok: false, reason: `fetch error: ${e.message}` }; }
+}

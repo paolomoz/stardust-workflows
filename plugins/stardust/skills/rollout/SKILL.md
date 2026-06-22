@@ -148,9 +148,41 @@ For every delivered page, `verify` confirms it's reachable (HTTP 200), has no
 `href="/…"` resolves to a known delivered path — then flips each page to
 `verified` or `failed` with the reason. It exits non-zero if any page failed.
 
-### Phase F — Report
+### Phase F — Optimize gate (delivery quality)
 
-Read `rollout.json.lastRun` (or re-run `inventory.mjs`) and print the counts:
+```bash
+node skills/rollout/scripts/optimize.mjs          # uses rollout.json site.liveHost
+# or: --base <url>  |  --root <dir>  |  --slug <s>  |  --all
+```
+
+The in-flow **quality gate**. `optimize` runs deterministic detectors over the
+delivered (or migrated) HTML — accessibility, seo, ai-search, cross-page — and
+writes `optimize/findings.json` + `optimize/scorecard.json`. It tags each finding
+by **fixability** and routes accordingly:
+
+- **`platform-migration`** — rollout fixes it by re-running `deploy` with the fix
+  (missing `<main>`/landmarks, missing/duplicate `<h1>`, missing title/description/
+  canonical, no JSON-LD, no sitemap).
+- **`design-pass`** — upstream; rollout can only **surface** it (fix in
+  `migrate`/`prototype`, e.g. missing `alt` text, duplicate titles).
+- **`out-of-scope`** — informational.
+
+It implements the **detect → fix → verify loop**: on re-run, a prior open finding
+no longer detected flips to `fixed` (with `resolvedBy`), and a regressed `fixed`
+finding re-opens. Human `accepted`/`wontfix` decisions are preserved. The gate
+**exits non-zero if any open P1 is in scope** — a page is only delivery-clean when
+verify passes *and* optimize has no open P1.
+
+> This is the first-class optimize step the design committed to (PLAN § 8) — it
+> runs *inside* the rollout flow as a gate, not bolted on after. The judgment
+> layers (brand-tensions, design-ux, content-conversion) are left `null` (not
+> assessed) for a future LLM-driven enrichment pass; the scorecard shows them as
+> not-assessed rather than pretending a score.
+
+### Phase G — Report
+
+Read `rollout.json.lastRun` + `optimize/scorecard.json` (or re-run `inventory.mjs`)
+and print the counts:
 
 ```
 rollout — <site> → aem-eds
@@ -158,6 +190,7 @@ rollout — <site> → aem-eds
 Pages       <N> total · <v> verified · <d> deployed · <p> pending · <s> stale
 Templates   <T> (per-template delivered/total)
 Blocks      <B> total · <c> converted · <p> pending
+Quality     health <H>/100 · open P1 <n> / P2 <n> / P3 <n>
 To deliver  <list of remaining slugs>
 ```
 
@@ -181,6 +214,8 @@ missing" list. Re-run from Phase B/C to pick up exactly those pages; when
 | `stardust/rollout/coverage/templates.json` | template grouping + roll-ups (schema: `schemas/rollout-templates.schema.json`) |
 | `stardust/rollout/coverage/blocks.json` | the block dedup ledger + EDS mapping (schema: `schemas/rollout-blocks.schema.json`) |
 | `stardust/rollout/plan.json` | dedup-driven delivery order + per-page convert/reuse briefs |
+| `stardust/rollout/optimize/findings.json` | in-flow quality findings ledger (schema: `schemas/rollout-findings.schema.json`) |
+| `stardust/rollout/optimize/scorecard.json` | quality scorecard + history (schema: `schemas/rollout-scorecard.schema.json`) |
 | `stardust/rollout/rollout.json` | config + `lastRun` summary (schema: `schemas/rollout-config.schema.json`) |
 | `stardust/rollout/site/{sitemap.xml,robots.txt,manifest.json}` | site-level assembly artifacts |
 | the delivered EDS site | produced by `deploy` per page (blocks/, content/, fragments — owned by `deploy`) |
@@ -190,12 +225,14 @@ agnostic core, `state.json`, or `migrated/` — those are read-only inputs.
 
 ## What rollout does NOT do (yet)
 
-- **No optimize/audit.** The detect → fix → verify quality gate returns as a
-  first-class in-flow step in a later phase (PLAN § 8). Not bolted on now.
-- **No dashboard.** The visual progress dashboard is a later phase; for now
-  rollout reports counts to the terminal + the `lastRun` summary.
+- **No judgment-layer optimize.** The automated gate covers accessibility, seo,
+  ai-search, cross-page. The judgment layers (brand-tensions, design-ux,
+  content-conversion) are `null` (not assessed) pending an LLM-driven enrichment
+  pass.
+- **No dashboard.** The visual progress dashboard is the last phase; for now
+  rollout reports counts + scorecard to the terminal and the `lastRun` summary.
 - **No redesign.** `rollout` never edits content or design; it delivers what
-  `migrate` produced.
+  `migrate` produced. `design-pass` findings are surfaced, not fixed here.
 - **No new transport.** Delivery is `deploy`'s DA Source API path, unchanged.
 
 ## Scripts
@@ -208,8 +245,10 @@ agnostic core, `state.json`, or `migrated/` — those are read-only inputs.
   (`<slug> --status …`) and blocks (`--block <id> --status …`); re-derives all
   roll-ups.
 - `scripts/assemble.mjs` — site-level sitemap / robots / fragments manifest.
-- `scripts/verify.mjs` — full-site verification (HTTP or offline `--root`).
-- `scripts/lib.mjs` — shared IO + roll-up helpers (counts always recomputed).
+- `scripts/verify.mjs` — full-site structural verification (HTTP or offline `--root`).
+- `scripts/optimize.mjs` — in-flow quality gate: findings + scorecard, fixability
+  routing, detect → fix → verify loop; exits non-zero on open P1.
+- `scripts/lib.mjs` — shared IO + roll-up + page-loading helpers.
 
 ## References
 
