@@ -244,12 +244,29 @@ missing" list. Re-run from Phase B/C to pick up exactly those pages; when
 node skills/rollout/scripts/dashboard.mjs    # → dashboard/index.html + data.json
 ```
 
-Generates a **self-contained, no-external-JS** progress dashboard (brand-tinted
-from the captured palette when available) over coverage + scorecard: headline
-counts, the delivery status bar + per-template table, the quality scorecard
-(7 dimensions + overall health + severity + a history sparkline), findings/autofix
-routing, and the what's-missing list. `dashboard/data.json` is the inspectable
-snapshot the HTML renders. Regenerate it at every iteration boundary.
+A **self-contained, no-external-JS** dashboard rendered in the **project's design
+identity** — brand tokens (bg / fg / accent / heading + body fonts / radius) are
+read from the `:root` block of a migrated page (the canonical token interface,
+`token-contract.md`).
+
+Its centerpiece is a **page tree** of every identified page, nested by URL path,
+each node colour-coded by its **lifecycle stage**:
+
+```
+identified → prototyped → migrated → deployed → optimised
+```
+
+The stage spans all three sources: `stardust/state.json` (agnostic
+`extracted/directed/prototyped/approved/migrated`), rollout coverage
+(`deployed`/`verified`), and optimize (`optimised` = verified **and** no open
+findings for the page). **Template archetypes** — the page that defines a
+template for its siblings (`templates.json[].representativeSlug`) — are badged
+`T`. A page with open findings shows a red count.
+
+Also: a **templates** table (archetype + member count + a per-stage lifecycle
+bar) and the quality scorecard. `dashboard/data.json` is the inspectable snapshot.
+Regenerate it at every iteration boundary. (`state.json` is read-only and
+optional — without it the tree starts at the `migrated` stage.)
 
 ## Inputs
 
@@ -317,7 +334,9 @@ Normalize each one's output into the ledger via `findings.mjs record`. See
   into the shared ledger.
 - `scripts/autofix-aem.mjs` — the AEM autofix engine (edits the EDS project, logs
   to `finding.autofix`, stages findings for re-deploy).
-- `scripts/dashboard.mjs` — self-contained progress dashboard + `data.json` snapshot.
+- `scripts/dashboard.mjs` — design-identity dashboard: lifecycle-coloured page
+  tree + templates + scorecard, `data.json` snapshot (reads `state.json` for the
+  agnostic stages).
 - `scripts/lib.mjs` — shared IO + roll-up + page-loading + autofix-registry helpers.
 
 ## References
