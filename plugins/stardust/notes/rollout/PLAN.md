@@ -199,8 +199,16 @@ Verify      3 link failures on /resources/* (see report)
   Sources are **referenced as dependencies**, not vendored. See
   `skills/rollout/reference/audit-sources.md`. Deliverable: an in-flow quality
   gate sourced from real audits, with hands-off AEM autofix.
-- **P4 — Dashboard.** The self-contained visual progress dashboard over rollout
-  coverage + scorecard. Deliverable: at-a-glance delivery + quality status.
+- **P4 — Dashboard.** The self-contained, no-external-JS progress dashboard
+  (`dashboard.mjs`) over coverage + scorecard: headline counts, delivery status +
+  per-template table, the 7-dimension quality scorecard + health + history
+  sparkline, findings/autofix routing, and what's-missing. `dashboard/data.json`
+  is the inspectable snapshot. Deliverable: at-a-glance delivery + quality status.
+
+**Status: P1–P4 implemented.** The flow runs end-to-end (inventory → dedup plan →
+deliver → assemble → verify → multi-source optimize → AEM autofix → dashboard),
+tested against fixtures. Live runs against a real AEM/DA target + the external
+audit skills are the remaining validation.
 
 ## 9. Reference map
 

@@ -12,9 +12,10 @@ The contract the two scripts maintain. Design rationale is in
 | `coverage/templates.json` | inventory + roll-up writers | pages grouped by `templateId` + roll-ups |
 | `coverage/blocks.json` | blocks (rows) + update-coverage (delivery) | one row per **distinct** block (dedup unit) |
 | `plan.json` | plan | dedup-driven delivery order + per-page convert/reuse |
-| `optimize/findings.json` | optimize | in-flow quality findings (detect→fix→verify) |
-| `optimize/scorecard.json` | optimize | per-layer health + overall + history |
+| `optimize/findings.json` | optimize + findings + autofix | multi-source quality findings (detect→fix→verify) |
+| `optimize/scorecard.json` | optimize + findings + autofix | per-layer health + overall + history |
 | `site/{sitemap.xml,robots.txt,manifest.json}` | assemble | site-level artifacts |
+| `dashboard/{index.html,data.json}` | dashboard | self-contained progress view + snapshot |
 
 `rollout` writes nothing outside this directory. `stardust/migrated/`,
 `state.json`, and the rest of the agnostic core are read-only inputs.

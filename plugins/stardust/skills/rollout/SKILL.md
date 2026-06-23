@@ -16,11 +16,9 @@ page, tracking delivery coverage so you always know what's done and what's left.
 coverage model, and the phasing are in
 [`notes/rollout/PLAN.md`](../../notes/rollout/PLAN.md).
 
-> **Phases 1–2 are built**: inventory + page coverage (P1), and **first-class
-> block dedup + site assembly + full-site verify** (P2). **optimize** (the
-> detect → fix → verify quality gate) and the **dashboard** remain committed
-> first-class steps deferred to later phases — see § Not yet built and PLAN § 8.
-> Do not bolt those on here.
+> **The full flow is built**: inventory + page coverage (P1); first-class block
+> dedup + site assembly + verify (P2); multi-source optimize + AEM autofix (P3);
+> and the dashboard (P4). The flow runs **A→I** below.
 
 ## When to use
 
@@ -240,6 +238,19 @@ Surface anything still `pending`/`stale`/`failed` as the explicit "what's
 missing" list. Re-run from Phase B/C to pick up exactly those pages; when
 `migrate` re-emits a page, `inventory` re-flags it `stale` and it re-delivers.
 
+### Phase I — Dashboard
+
+```bash
+node skills/rollout/scripts/dashboard.mjs    # → dashboard/index.html + data.json
+```
+
+Generates a **self-contained, no-external-JS** progress dashboard (brand-tinted
+from the captured palette when available) over coverage + scorecard: headline
+counts, the delivery status bar + per-template table, the quality scorecard
+(7 dimensions + overall health + severity + a history sparkline), findings/autofix
+routing, and the what's-missing list. `dashboard/data.json` is the inspectable
+snapshot the HTML renders. Regenerate it at every iteration boundary.
+
 ## Inputs
 
 | Input | Source | Used for |
@@ -260,6 +271,7 @@ missing" list. Re-run from Phase B/C to pick up exactly those pages; when
 | `stardust/rollout/optimize/scorecard.json` | quality scorecard + history (schema: `schemas/rollout-scorecard.schema.json`) |
 | `stardust/rollout/rollout.json` | config + `lastRun` summary (schema: `schemas/rollout-config.schema.json`) |
 | `stardust/rollout/site/{sitemap.xml,robots.txt,manifest.json}` | site-level assembly artifacts |
+| `stardust/rollout/dashboard/{index.html,data.json}` | self-contained progress dashboard + snapshot |
 | edits to the **EDS project** (`content/**`, `styles/`) | applied by `autofix-aem` (the only files rollout writes outside `stardust/rollout/`) |
 | the delivered EDS site | produced by `deploy` per page (blocks/, content/, fragments — owned by `deploy`) |
 
@@ -279,14 +291,14 @@ optimize orchestrates existing audit skills by invocation; they must be installe
 Normalize each one's output into the ledger via `findings.mjs record`. See
 `reference/audit-sources.md`.
 
-## What rollout does NOT do (yet)
+## What rollout does NOT do
 
-- **No dashboard.** The visual progress dashboard is the last phase; for now
-  rollout reports counts + scorecard to the terminal and the `lastRun` summary.
 - **No upstream redesign.** `design-pass` findings are surfaced, not fixed here —
   they belong to `migrate`/`prototype`. autofix only touches platform-fixable
   findings in the EDS project.
 - **No new transport.** Delivery is `deploy`'s DA Source API path, unchanged.
+- **No redesign of the agnostic core.** `extract`/`direct`/`prototype`/`migrate`
+  and `deploy` are untouched; rollout is the across-pages delivery layer on top.
 
 ## Scripts
 
@@ -305,6 +317,7 @@ Normalize each one's output into the ledger via `findings.mjs record`. See
   into the shared ledger.
 - `scripts/autofix-aem.mjs` — the AEM autofix engine (edits the EDS project, logs
   to `finding.autofix`, stages findings for re-deploy).
+- `scripts/dashboard.mjs` — self-contained progress dashboard + `data.json` snapshot.
 - `scripts/lib.mjs` — shared IO + roll-up + page-loading + autofix-registry helpers.
 
 ## References
