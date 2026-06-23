@@ -1,9 +1,12 @@
-# optimize check catalog (rollout in-flow quality gate)
+# optimize check catalog — `rollout:baseline` source
 
-The deterministic detectors `optimize.mjs` runs over the delivered (or migrated)
-HTML. Findings reference a check by `layer` + `check`; this catalog can grow
-without a schema change. Severity drives the gate (any open **P1** fails it);
-fixability routes the fix.
+These are the deterministic detectors of the **`rollout:baseline`** source that
+`optimize.mjs` runs over the delivered (or migrated) HTML. Baseline is **one of
+several audit sources** — the others (impeccable, the marketing SEO skills,
+stardust tensions) feed the same ledger via `findings.mjs record`; see
+`audit-sources.md`. Findings reference a check by `layer` + `check`; this catalog
+can grow without a schema change. Severity drives the gate (any open **P1** fails
+it); fixability routes the fix; a registered `check` is auto-fixed by `autofix-aem`.
 
 `fixability`: **PM** = platform-migration (rollout re-deploys to fix) · **DP** =
 design-pass (upstream — fix in migrate/prototype; rollout only surfaces) · **OOS**
@@ -40,12 +43,15 @@ design-pass (upstream — fix in migrate/prototype; rollout only surfaces) · **
 | `duplicate-title` | P2 | DP | ≥2 pages share a `<title>` | unique titles upstream (migrate metadata) |
 | `duplicate-description` | P3 | DP | ≥2 pages share a description | per-page descriptions upstream |
 
-## Not yet assessed (judgment layers)
+## Layers baseline does not assess
 
-`brand-tensions`, `design-ux`, `content-conversion` need design-director / content
-judgment, not deterministic parsing. They are scored `null` (not assessed) in the
-scorecard and are reserved for a future LLM-driven enrichment pass that appends
-findings to the same ledger. The schema already enumerates all seven layers.
+`brand-tensions`, `design-ux`, and `content-conversion` need judgment, not
+deterministic parsing, so the **baseline** source leaves them unscored (`null`).
+They are populated by the **other sources** — `impeccable:critique` (design-ux,
+brand-tensions), `stardust:tensions` (brand-tensions, design-ux), and the
+marketing skills (content-conversion via `cro`/`copywriting` if run) — recorded
+through `findings.mjs`. Once a source records into a layer, the scorecard scores
+it; until then it shows not-assessed rather than faking a number.
 
 ## Scope & loop semantics
 

@@ -21,7 +21,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { readJSON, writeJSON, loadPageHTML } from './lib.mjs';
+import { readJSON, writeJSON, loadPageHTML, computeScorecard, autofixFor, ASSESSED_BY_BASELINE } from './lib.mjs';
 
 function arg(name, fallback) { const i = process.argv.indexOf(`--${name}`); return i !== -1 && process.argv[i + 1] ? process.argv[i + 1] : fallback; }
 const OUT = arg('out', 'stardust/rollout');
@@ -29,9 +29,8 @@ const ROOT = arg('root', null);
 const onlySlug = arg('slug', null);
 const ALL = process.argv.includes('--all');
 
-const ASSESSED = ['accessibility', 'seo', 'ai-search', 'cross-page'];
-const ALL_LAYERS = ['brand-tensions', 'design-ux', 'accessibility', 'seo', 'content-conversion', 'ai-search', 'cross-page'];
-const WEIGHT = { P1: 25, P2: 10, P3: 4 };
+const SOURCE = 'rollout:baseline';
+const ASSESSED = ASSESSED_BY_BASELINE;
 const PHASE_FOR = { 'platform-migration': 'deploy', 'design-pass': 'migrate', 'out-of-scope': 'rollout' };
 
 const config = readJSON(join(OUT, 'rollout.json'), {});
@@ -41,9 +40,9 @@ if (!pagesDoc) { console.error('rollout optimize: run inventory.mjs first.'); pr
 if (!ROOT && !BASE) { console.error('rollout optimize: need --base <url> or --root <dir> (or set site.liveHost).'); process.exit(2); }
 const pages = pagesDoc.pages || [];
 
-const fid = (layer, check, level, ids) => `f-${createHash('sha1').update(`${layer}|${check}|${level}|${[...ids].sort().join(',')}`).digest('hex').slice(0, 10)}`;
+const fid = (layer, check, level, ids) => `f-${createHash('sha1').update(`${SOURCE}|${layer}|${check}|${level}|${[...ids].sort().join(',')}`).digest('hex').slice(0, 10)}`;
 const mk = (layer, check, severity, fixability, level, ids, evidence, recommendedMove) =>
-  ({ id: fid(layer, check, level, ids), layer, check, severity, fixability, scope: { level, ids }, evidence, recommendedMove });
+  ({ id: fid(layer, check, level, ids), source: SOURCE, layer, check, severity, fixability, scope: { level, ids }, evidence, recommendedMove, autofix: autofixFor(check) });
 
 // --- Detectors -----------------------------------------------------------------
 const has = (re, s) => re.test(s);
@@ -137,10 +136,13 @@ for (const d of detected) {
 }
 for (const p of prior.findings || []) {
   if (seen.has(p.id)) continue;
-  if ((p.status === 'open' || p.status === 'in-progress') && inScope(p)) {
+  // Only a run of THIS source may auto-resolve its own findings. Findings from
+  // other sources (impeccable, marketing skills, stardust tensions) are preserved
+  // untouched — they are resolved by re-recording from their own audit.
+  if (p.source === SOURCE && (p.status === 'open' || p.status === 'in-progress') && inScope(p)) {
     out.push({ ...p, status: 'fixed', resolvedBy: { phase: PHASE_FOR[p.fixability] || 'rollout', at: now, note: 'no longer detected on delivered page' } });
   } else {
-    out.push(p); // out-of-scope or already-terminal — preserve
+    out.push(p); // other source, out-of-scope, or already-terminal — preserve
   }
 }
 const sevRank = { P1: 0, P2: 1, P3: 2 };
@@ -149,23 +151,11 @@ out.sort((a, b) => (sevRank[a.severity] - sevRank[b.severity]) || a.id.localeCom
 const runs = [...(prior.runs || []), { id: runId, at: now, scopePages: [...inspectedSlugs].sort(), layersRun: ASSESSED, trigger: onlySlug ? 'reverify' : 'deliver', source: ROOT ? `root:${ROOT}` : BASE }];
 writeJSON(findingsPath, { _provenance: { writtenBy: 'stardust:rollout/optimize', writtenAt: now, stardustVersion: (config._provenance || {}).stardustVersion || '0.0.0' }, runs, findings: out });
 
-// --- Scorecard -----------------------------------------------------------------
+// --- Scorecard (over ALL sources in the ledger, not just baseline) -------------
 const open = out.filter((x) => x.status === 'open' || x.status === 'in-progress');
-const fixed = out.filter((x) => x.status === 'fixed');
-const dimensions = {};
-for (const layer of ALL_LAYERS) {
-  if (!ASSESSED.includes(layer)) { dimensions[layer] = null; continue; }
-  const penalty = open.filter((x) => x.layer === layer).reduce((n, x) => n + (WEIGHT[x.severity] || 0), 0);
-  dimensions[layer] = Math.max(0, 100 - penalty);
-}
-const assessedScores = ASSESSED.map((l) => dimensions[l]);
-const overall = assessedScores.length ? Math.round(assessedScores.reduce((a, b) => a + b, 0) / assessedScores.length) : null;
-const sev = (arr, s) => arr.filter((x) => x.severity === s).length;
-const snapshot = {
-  runId, at: now, overall, dimensions,
-  severity: { P1: sev(open, 'P1'), P2: sev(open, 'P2'), P3: sev(open, 'P3') },
-  fixed: { P1: sev(fixed, 'P1'), P2: sev(fixed, 'P2'), P3: sev(fixed, 'P3') },
-};
+const snapshot = computeScorecard(out, runId, now);
+const dimensions = snapshot.dimensions;
+const overall = snapshot.overall;
 const priorSc = readJSON(scorecardPath, { history: [] });
 writeJSON(scorecardPath, { _provenance: { writtenBy: 'stardust:rollout/optimize', writtenAt: now, stardustVersion: (config._provenance || {}).stardustVersion || '0.0.0' }, current: snapshot, history: [...(priorSc.history || []), snapshot] });
 

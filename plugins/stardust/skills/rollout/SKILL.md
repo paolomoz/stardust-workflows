@@ -148,38 +148,80 @@ For every delivered page, `verify` confirms it's reachable (HTTP 200), has no
 `href="/…"` resolves to a known delivered path — then flips each page to
 `verified` or `failed` with the reason. It exits non-zero if any page failed.
 
-### Phase F — Optimize gate (delivery quality)
+### Phase F — Optimize: multi-source audit + gate (delivery quality)
+
+The in-flow **quality gate**. optimize aggregates findings from **existing audit
+skills** into one ledger (`optimize/findings.json` + `optimize/scorecard.json`),
+tags each by **fixability**, and gates the rollout. Sources (see
+`reference/audit-sources.md` for the full mapping):
+
+1. **`rollout:baseline`** — built-in deterministic detectors. Run it directly:
+
+   ```bash
+   node skills/rollout/scripts/optimize.mjs        # uses rollout.json site.liveHost
+   # or: --base <url> | --root <dir> | --slug <s> | --all
+   ```
+
+2. **`impeccable:critique` + `impeccable:audit`** — run them against the delivered
+   output for design quality (P-levels) and a11y/perf/responsiveness.
+3. **The marketing SEO skills** (`coreyhaines31/marketingskills`) — `seo-audit`,
+   `schema`, `ai-seo`, `site-architecture`.
+4. **`stardust:tensions`** — the mechanical design tensions from
+   `stardust/current/brand-review.html` (type-scale, CTA-vocab, content-free
+   links, generic/empty alt, contrast…).
+
+These are referenced as **dependencies** (run them by invocation — nothing is
+vendored). Normalize each one's findings into the ledger with the writer:
 
 ```bash
-node skills/rollout/scripts/optimize.mjs          # uses rollout.json site.liveHost
-# or: --base <url>  |  --root <dir>  |  --slug <s>  |  --all
+node skills/rollout/scripts/findings.mjs record \
+  --source marketing:seo-audit --layer seo --check thin-content \
+  --severity P2 --fixability platform-migration \
+  --scope-ids blog/post --evidence "…" --recommend "…"
+# resolve/accept/wontfix a finding:
+node skills/rollout/scripts/findings.mjs resolve <id> --status accepted --note "…"
 ```
 
-The in-flow **quality gate**. `optimize` runs deterministic detectors over the
-delivered (or migrated) HTML — accessibility, seo, ai-search, cross-page — and
-writes `optimize/findings.json` + `optimize/scorecard.json`. It tags each finding
-by **fixability** and routes accordingly:
+All sources share one id space, dedup, scorecard, and the **detect → fix →
+verify loop**: re-running a source resolves *its own* findings no longer present
+(a baseline run never resolves another source's finding); a regressed `fixed`
+finding re-opens; human `accepted`/`wontfix` are preserved. Each finding also
+carries an **`autofix`** descriptor (the registered AEM fixer, if any).
 
-- **`platform-migration`** — rollout fixes it by re-running `deploy` with the fix
-  (missing `<main>`/landmarks, missing/duplicate `<h1>`, missing title/description/
-  canonical, no JSON-LD, no sitemap).
-- **`design-pass`** — upstream; rollout can only **surface** it (fix in
-  `migrate`/`prototype`, e.g. missing `alt` text, duplicate titles).
-- **`out-of-scope`** — informational.
+**Fixability routing:** `platform-migration` → the AEM autofix engine / re-deploy
+fixes it; `design-pass` → upstream (surface only); `out-of-scope` → informational.
 
-It implements the **detect → fix → verify loop**: on re-run, a prior open finding
-no longer detected flips to `fixed` (with `resolvedBy`), and a regressed `fixed`
-finding re-opens. Human `accepted`/`wontfix` decisions are preserved. The gate
-**exits non-zero if any open P1 is in scope** — a page is only delivery-clean when
-verify passes *and* optimize has no open P1.
+The gate **exits non-zero if any open P1 is in scope** — a page is delivery-clean
+only when verify passes *and* the ledger has no open P1.
 
-> This is the first-class optimize step the design committed to (PLAN § 8) — it
-> runs *inside* the rollout flow as a gate, not bolted on after. The judgment
-> layers (brand-tensions, design-ux, content-conversion) are left `null` (not
-> assessed) for a future LLM-driven enrichment pass; the scorecard shows them as
-> not-assessed rather than pretending a score.
+> The judgment layers (brand-tensions, design-ux, content-conversion) are scored
+> `null` (not assessed by the automated baseline) until populated by the
+> impeccable/tensions sources — the scorecard shows not-assessed rather than
+> faking a score.
 
-### Phase G — Report
+### Phase G — AEM autofix (close the loop)
+
+```bash
+node skills/rollout/scripts/autofix-aem.mjs --project <eds-root>   # [--dry-run] [--slug s] [--check c]
+```
+
+The platform autofix engine (AEM-EDS, v1 — **aggressive**). For every open finding
+whose `check` has a registered EDS fixer, it edits the EDS **project** files and
+logs the change on `finding.autofix`, staging the finding `in-progress`:
+
+- **deterministic** — `eds-fix-h1` (promote/demote so exactly one `<h1>`),
+  sitemap (re-assemble).
+- **content-draft** (applied under the aggressive policy, logged for review) —
+  `eds-metadata-title` / `eds-metadata-description` (draft from `<h1>`/first
+  paragraph), `eds-alt-draft` (alt from filename), `eds-disambiguate-title`.
+- **manual** (autofix prepares guidance/payload, a human applies) — `eds-jsonld`
+  (use `marketing:schema` for the payload), `eds-canonical`, `eds-landmark-main`.
+
+Use `--dry-run` first to preview edits. After applying, **re-deploy** the edited
+pages (`deploy`), then re-run **verify** + **optimize** — the staged findings flip
+to `fixed`, closing the loop. `design-pass` findings are surfaced, not auto-fixed.
+
+### Phase H — Report
 
 Read `rollout.json.lastRun` + `optimize/scorecard.json` (or re-run `inventory.mjs`)
 and print the counts:
@@ -214,25 +256,36 @@ missing" list. Re-run from Phase B/C to pick up exactly those pages; when
 | `stardust/rollout/coverage/templates.json` | template grouping + roll-ups (schema: `schemas/rollout-templates.schema.json`) |
 | `stardust/rollout/coverage/blocks.json` | the block dedup ledger + EDS mapping (schema: `schemas/rollout-blocks.schema.json`) |
 | `stardust/rollout/plan.json` | dedup-driven delivery order + per-page convert/reuse briefs |
-| `stardust/rollout/optimize/findings.json` | in-flow quality findings ledger (schema: `schemas/rollout-findings.schema.json`) |
+| `stardust/rollout/optimize/findings.json` | multi-source quality findings ledger (schema: `schemas/rollout-findings.schema.json`) |
 | `stardust/rollout/optimize/scorecard.json` | quality scorecard + history (schema: `schemas/rollout-scorecard.schema.json`) |
 | `stardust/rollout/rollout.json` | config + `lastRun` summary (schema: `schemas/rollout-config.schema.json`) |
 | `stardust/rollout/site/{sitemap.xml,robots.txt,manifest.json}` | site-level assembly artifacts |
+| edits to the **EDS project** (`content/**`, `styles/`) | applied by `autofix-aem` (the only files rollout writes outside `stardust/rollout/`) |
 | the delivered EDS site | produced by `deploy` per page (blocks/, content/, fragments — owned by `deploy`) |
 
-`rollout` writes **only** under `stardust/rollout/`. It never modifies the
-agnostic core, `state.json`, or `migrated/` — those are read-only inputs.
+`rollout` writes under `stardust/rollout/` and — only via `autofix-aem` — to the
+**EDS project** it is delivering to. It never modifies the agnostic core,
+`state.json`, or `migrated/` — those are read-only inputs.
+
+## Dependencies (audit sources — referenced, not vendored)
+
+optimize orchestrates existing audit skills by invocation; they must be installed:
+
+- **impeccable** (`critique`, `audit`) — already a stardust dependency.
+- **marketing skills** (`coreyhaines31/marketingskills`) — `seo-audit`, `schema`,
+  `ai-seo`, `site-architecture`. Optional; surface a note if absent.
+- **stardust tensions** — emitted in-repo by `extract` (`brand-review.html`).
+
+Normalize each one's output into the ledger via `findings.mjs record`. See
+`reference/audit-sources.md`.
 
 ## What rollout does NOT do (yet)
 
-- **No judgment-layer optimize.** The automated gate covers accessibility, seo,
-  ai-search, cross-page. The judgment layers (brand-tensions, design-ux,
-  content-conversion) are `null` (not assessed) pending an LLM-driven enrichment
-  pass.
 - **No dashboard.** The visual progress dashboard is the last phase; for now
   rollout reports counts + scorecard to the terminal and the `lastRun` summary.
-- **No redesign.** `rollout` never edits content or design; it delivers what
-  `migrate` produced. `design-pass` findings are surfaced, not fixed here.
+- **No upstream redesign.** `design-pass` findings are surfaced, not fixed here —
+  they belong to `migrate`/`prototype`. autofix only touches platform-fixable
+  findings in the EDS project.
 - **No new transport.** Delivery is `deploy`'s DA Source API path, unchanged.
 
 ## Scripts
@@ -246,13 +299,19 @@ agnostic core, `state.json`, or `migrated/` — those are read-only inputs.
   roll-ups.
 - `scripts/assemble.mjs` — site-level sitemap / robots / fragments manifest.
 - `scripts/verify.mjs` — full-site structural verification (HTTP or offline `--root`).
-- `scripts/optimize.mjs` — in-flow quality gate: findings + scorecard, fixability
-  routing, detect → fix → verify loop; exits non-zero on open P1.
-- `scripts/lib.mjs` — shared IO + roll-up + page-loading helpers.
+- `scripts/optimize.mjs` — `rollout:baseline` detectors + the multi-source gate:
+  scorecard, fixability routing, detect → fix → verify loop; exits non-zero on open P1.
+- `scripts/findings.mjs` — record/resolve findings from the external audit sources
+  into the shared ledger.
+- `scripts/autofix-aem.mjs` — the AEM autofix engine (edits the EDS project, logs
+  to `finding.autofix`, stages findings for re-deploy).
+- `scripts/lib.mjs` — shared IO + roll-up + page-loading + autofix-registry helpers.
 
 ## References
 
 - `notes/rollout/PLAN.md` — design, coverage model, phasing, open questions.
+- `reference/audit-sources.md` — the audit-source → layer → fixability → autofix map.
+- `reference/checks.md` — the `rollout:baseline` check catalog.
 - `skills/deploy/SKILL.md` — the single-page conversion methodology rollout drives.
 - `skills/deploy/da-deploy-protocol.md` — the DA Source API transport.
 - `skills/migrate/SKILL.md` — produces the `migrated/` + `_meta.json` inputs.

@@ -41,10 +41,15 @@
     },
     "finding": {
       "type": "object",
-      "required": ["id", "layer", "check", "severity", "scope", "fixability", "status"],
+      "required": ["id", "source", "layer", "check", "severity", "scope", "fixability", "status"],
       "additionalProperties": false,
       "properties": {
-        "id": { "type": "string", "description": "Stable id = f-<hash(layer|check|scope)>; re-runs match by this." },
+        "id": { "type": "string", "description": "Stable id = f-<hash(source|layer|check|scope)>; re-runs match by this." },
+        "source": {
+          "type": "string",
+          "description": "Which audit produced the finding. Known values: rollout:baseline (built-in deterministic detectors), impeccable:critique, impeccable:audit, marketing:seo-audit, marketing:schema, marketing:ai-seo, marketing:site-architecture, stardust:tensions. Extensible — new sources may be added without a schema change.",
+          "examples": ["rollout:baseline", "impeccable:audit", "marketing:seo-audit", "stardust:tensions"]
+        },
         "layer": { "$ref": "#/$defs/layer" },
         "check": { "type": "string", "description": "Check id within the layer (catalog in reference/checks.md; grows without a schema change)." },
         "severity": { "type": "string", "enum": ["P1", "P2", "P3"] },
@@ -61,15 +66,30 @@
         "fixability": {
           "type": "string",
           "enum": ["platform-migration", "design-pass", "out-of-scope"],
-          "description": "platform-migration = rollout fixes it by re-running deploy. design-pass = upstream (fix in migrate/prototype; rollout can only surface). out-of-scope = informational."
+          "description": "platform-migration = rollout fixes it by re-running deploy (and the AEM autofix engine may auto-apply). design-pass = upstream (fix in migrate/prototype; rollout can only surface). out-of-scope = informational."
         },
         "recommendedMove": { "type": "string" },
         "status": { "type": "string", "enum": ["open", "in-progress", "fixed", "accepted", "wontfix"] },
+        "autofix": {
+          "type": ["object", "null"],
+          "description": "Platform autofix linkage (AEM-EDS in v1). Set by optimize when a fixer is registered for the check; updated by autofix-aem.",
+          "additionalProperties": false,
+          "properties": {
+            "available": { "type": "boolean" },
+            "target": { "type": "string", "examples": ["aem-eds"] },
+            "strategy": { "type": ["string", "null"], "description": "Fixer id, e.g. eds-metadata-title, eds-fix-h1." },
+            "kind": { "type": ["string", "null"], "enum": ["deterministic", "content-draft", "manual", null], "description": "deterministic = mechanical edit; content-draft = generated copy (applied under aggressive policy, logged); manual = payload prepared, human applies." },
+            "status": { "type": "string", "enum": ["unavailable", "pending", "applied", "failed", "manual"] },
+            "appliedBy": { "type": ["string", "null"] },
+            "at": { "type": ["string", "null"], "format": "date-time" },
+            "detail": { "type": ["string", "null"], "description": "What changed (before→after) or why it needs manual handling." }
+          }
+        },
         "resolvedBy": {
           "type": ["object", "null"],
           "additionalProperties": false,
           "properties": {
-            "phase": { "type": "string", "enum": ["deploy", "migrate", "prototype", "rollout"] },
+            "phase": { "type": "string", "enum": ["deploy", "migrate", "prototype", "rollout", "autofix"] },
             "artifact": { "type": "string" },
             "at": { "type": "string", "format": "date-time" },
             "note": { "type": "string" }

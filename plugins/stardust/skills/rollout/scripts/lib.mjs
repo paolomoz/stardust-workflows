@@ -98,3 +98,56 @@ export async function loadPageHTML(page, { root, base }) {
     return { ok: true, body };
   } catch (e) { return { ok: false, reason: `fetch error: ${e.message}` }; }
 }
+
+// --- optimize: layers, scoring, and the AEM autofix registry --------------------
+export const ALL_LAYERS = ['brand-tensions', 'design-ux', 'accessibility', 'seo', 'content-conversion', 'ai-search', 'cross-page'];
+export const ASSESSED_BY_BASELINE = ['accessibility', 'seo', 'ai-search', 'cross-page'];
+export const SEV_WEIGHT = { P1: 25, P2: 10, P3: 4 };
+
+/**
+ * AEM autofix registry: maps a finding's `check` to the EDS fixer that resolves it.
+ * kind: 'deterministic' (mechanical edit) | 'content-draft' (generates copy needing
+ * review — applied under the aggressive policy, logged) | 'manual' (autofix prepares
+ * a payload/guidance but a human applies it). target is aem-eds for v1.
+ */
+export const AEM_AUTOFIX = {
+  'title-missing': { strategy: 'eds-metadata-title', kind: 'content-draft' },
+  'title-length': { strategy: 'eds-metadata-title', kind: 'content-draft' },
+  'meta-description': { strategy: 'eds-metadata-description', kind: 'content-draft' },
+  'single-h1': { strategy: 'eds-fix-h1', kind: 'deterministic' },
+  'img-alt': { strategy: 'eds-alt-draft', kind: 'content-draft' },
+  'duplicate-title': { strategy: 'eds-disambiguate-title', kind: 'content-draft' },
+  'sitemap': { strategy: 'rollout-assemble', kind: 'deterministic' },
+  'jsonld': { strategy: 'eds-jsonld', kind: 'manual' },
+  'canonical': { strategy: 'eds-canonical', kind: 'manual' },
+  'landmark-main': { strategy: 'eds-landmark-main', kind: 'manual' },
+};
+
+/** The autofix descriptor for a finding (check), or an unavailable stub. */
+export function autofixFor(check) {
+  const a = AEM_AUTOFIX[check];
+  if (!a) return { available: false, target: 'aem-eds', strategy: null, kind: null, status: 'unavailable', appliedBy: null, at: null, detail: null };
+  return { available: true, target: 'aem-eds', strategy: a.strategy, kind: a.kind, status: 'pending', appliedBy: null, at: null, detail: null };
+}
+
+/** Compute a scorecard snapshot from the full findings list. */
+export function computeScorecard(findings, runId, now) {
+  const open = findings.filter((x) => x.status === 'open' || x.status === 'in-progress');
+  const fixed = findings.filter((x) => x.status === 'fixed');
+  const assessed = new Set();
+  for (const f of findings) assessed.add(f.layer);
+  const dimensions = {};
+  for (const layer of ALL_LAYERS) {
+    if (!assessed.has(layer)) { dimensions[layer] = null; continue; }
+    const penalty = open.filter((x) => x.layer === layer).reduce((n, x) => n + (SEV_WEIGHT[x.severity] || 0), 0);
+    dimensions[layer] = Math.max(0, 100 - penalty);
+  }
+  const scored = ALL_LAYERS.map((l) => dimensions[l]).filter((v) => v !== null);
+  const overall = scored.length ? Math.round(scored.reduce((a, b) => a + b, 0) / scored.length) : null;
+  const sev = (arr, s) => arr.filter((x) => x.severity === s).length;
+  return {
+    runId, at: now, overall, dimensions,
+    severity: { P1: sev(open, 'P1'), P2: sev(open, 'P2'), P3: sev(open, 'P3') },
+    fixed: { P1: sev(fixed, 'P1'), P2: sev(fixed, 'P2'), P3: sev(fixed, 'P3') },
+  };
+}

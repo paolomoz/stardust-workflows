@@ -188,10 +188,19 @@ Verify      3 link failures on /resources/* (see report)
 - **P2 — Block dedup (first-class) + site assembly + verify.** Dedup-driven
   conversion + `blocks.json`; fragments/sitemap; full-site verification + stale
   re-delivery. Deliverable: efficient, coherent, re-runnable full-site rollout.
-- **P3 — optimize in the flow.** Re-introduce the detect → fix → verify audit as
-  an in-flow delivery-quality gate.
+- **P3 — optimize in the flow (multi-source audit + AEM autofix).** optimize is
+  an **aggregator** over existing audit skills, not a bespoke audit: a built-in
+  deterministic `rollout:baseline` source plus `impeccable:critique`/`audit`, the
+  marketing SEO skills (`seo-audit`, `schema`, `ai-seo`, `site-architecture`), and
+  `stardust:tensions` — all normalized into one findings ledger (with `source`
+  provenance) + scorecard, gated on open P1. A platform **autofix engine**
+  (AEM-EDS first, aggressive incl. content) resolves the platform-fixable findings
+  by editing the EDS project, then a re-`deploy` + re-`optimize` closes the loop.
+  Sources are **referenced as dependencies**, not vendored. See
+  `skills/rollout/reference/audit-sources.md`. Deliverable: an in-flow quality
+  gate sourced from real audits, with hands-off AEM autofix.
 - **P4 — Dashboard.** The self-contained visual progress dashboard over rollout
-  coverage. Deliverable: at-a-glance delivery status.
+  coverage + scorecard. Deliverable: at-a-glance delivery + quality status.
 
 ## 9. Reference map
 
