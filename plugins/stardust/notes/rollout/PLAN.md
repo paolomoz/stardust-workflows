@@ -202,8 +202,9 @@ Verify      3 link failures on /resources/* (see report)
 - **P4 — Dashboard.** The self-contained, no-external-JS dashboard
   (`dashboard.mjs`), rendered in the **project's design identity** (brand tokens
   from the migrated `:root`). Centerpiece: a **lifecycle-coloured page tree**
-  (identified → prototyped → migrated → deployed → optimised, spanning
-  `state.json` + coverage + optimize) with template archetypes badged; plus a
+  (identified → prototyped → deployed → optimised, spanning `state.json` +
+  coverage + optimize). Node colour = most-advanced stage reached; legend counts
+  are cumulative (identified = all pages). Template archetypes badged; plus a
   templates lifecycle table and the quality scorecard. `dashboard/data.json` is
   the inspectable snapshot. Deliverable: at-a-glance lifecycle + quality status.
 

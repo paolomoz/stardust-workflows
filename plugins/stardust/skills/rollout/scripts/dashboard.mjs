@@ -57,9 +57,14 @@ function readIdentity() {
 }
 
 // ---- merge agnostic state + coverage + optimize into one page model ------------
-const STAGES = ['identified', 'prototyped', 'migrated', 'deployed', 'optimised'];
-const STAGE_COLOR = { identified: '#9aa3ad', prototyped: '#7c5cff', migrated: '#2d8cf0', deployed: '#18a0a0', optimised: '#2e9e5b' };
-const AG = { extracted: 0, directed: 0, prototyped: 1, approved: 1, migrated: 2 };
+// Four lifecycle checkpoints. A page's stage is the MOST ADVANCED it has reached
+// (drives the node colour). "migrated" folds into prototyped (designed, not yet
+// deployed). Legend counts are CUMULATIVE — a page counts toward every stage up
+// to and including the one it reached (so identified = all pages).
+const STAGES = ['identified', 'prototyped', 'deployed', 'optimised'];
+const STAGE_COLOR = { identified: '#9aa3ad', prototyped: '#5b8def', deployed: '#18a0a0', optimised: '#2e9e5b' };
+const AG = { extracted: 0, directed: 0, prototyped: 1, approved: 1, migrated: 1 };
+const rankOf = (stage) => STAGES.indexOf(stage);
 
 const openByPage = {};
 for (const f of findings) {
@@ -79,9 +84,9 @@ function pathOf(slug, cov, stp) {
 }
 function stageOf(p) {
   let r = AG[p.agnosticStatus] ?? 0;
-  if (p.inCoverage) r = Math.max(r, 2);
-  if (p.delivery && (p.delivery.status === 'deployed' || p.delivery.status === 'verified')) r = Math.max(r, 3);
-  if (p.delivery && p.delivery.status === 'verified' && (openByPage[p.slug] || 0) === 0 && optimizeRan) r = 4;
+  if (p.inCoverage) r = Math.max(r, 1); // in the migrated tree → at least prototyped/designed
+  if (p.delivery && (p.delivery.status === 'deployed' || p.delivery.status === 'verified')) r = Math.max(r, 2);
+  if (p.delivery && p.delivery.status === 'verified' && (openByPage[p.slug] || 0) === 0 && optimizeRan) r = 3;
   return STAGES[r];
 }
 
@@ -118,14 +123,17 @@ function buildTree(pages) {
 const tree = buildTree(model);
 
 // ---- snapshot -------------------------------------------------------------------
-const stageCount = STAGES.reduce((m, s) => { m[s] = model.filter((p) => p.stage === s).length; return m; }, {});
+// stageCount: CUMULATIVE (reached this stage or beyond). stageExclusive: each page
+// in exactly its most-advanced stage (sums to total — used for the stacked bars).
+const stageCount = STAGES.reduce((m, s) => { m[s] = model.filter((p) => rankOf(p.stage) >= rankOf(s)).length; return m; }, {});
+const stageExclusive = STAGES.reduce((m, s) => { m[s] = model.filter((p) => p.stage === s).length; return m; }, {});
 const countBy = (arr, get) => arr.reduce((m, x) => { const k = get(x); m[k] = (m[k] || 0) + 1; return m; }, {});
 const open = findings.filter((f) => f.status === 'open' || f.status === 'in-progress');
 const snapshot = {
   generatedAt: new Date().toISOString(),
   target: config.target || 'aem-eds',
   site: { sourceUrl: (config.site && config.site.sourceUrl) || null, liveHost: (config.site && config.site.liveHost) || null },
-  stageCount,
+  stageCount, stageExclusive,
   pages: model.map((p) => ({ slug: p.slug, path: p.path, stage: p.stage, templateId: p.templateId, isTemplate: p.isTemplate, openFindings: p.openFindings })),
   templates: templates.map((t) => {
     const members = model.filter((p) => p.templateId === t.id);
@@ -143,7 +151,7 @@ writeFileSync(join(dashDir, 'index.html'), render(snapshot, tree, readIdentity()
 
 console.log(`rollout dashboard → ${join(dashDir, 'index.html')}`);
 console.log('='.repeat(60));
-console.log(`Pages ${model.length} · ${STAGES.map((s) => `${s} ${stageCount[s]}`).join(' · ')}`);
+console.log(`Pages ${model.length} (cumulative): ${STAGES.map((s) => `${s} ${stageCount[s]}`).join(' · ')}`);
 
 // ================================================================ rendering
 function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
@@ -190,6 +198,7 @@ function render(s, treeRoot, id) {
   const legend = STAGES.map((st) => `<span class="lg">${dot(st)}${st} <b>${s.stageCount[st]}</b></span>`).join('');
   const q = s.quality;
   const tmplRows = s.templates.map((t) => `<tr><td>${esc(t.id)}</td><td class="mono">${esc(t.archetype || '—')}</td><td>${t.pageCount}</td><td><span class="stack">${stageStack(t.stages, t.pageCount)}</span></td></tr>`).join('');
+  const total = s.pages.length;
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>rollout — ${esc(s.site.sourceUrl || s.target)}</title>
 <style>
@@ -206,7 +215,7 @@ h2{font-family:var(--heading);font-size:15px;letter-spacing:.02em;margin:30px 0 
 .card .n{font-family:var(--heading);font-size:28px;line-height:1}.card .l{font-size:12px;color:var(--muted);margin-top:6px}
 .panel{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:18px;margin-bottom:14px}
 .legend{display:flex;flex-wrap:wrap;gap:16px;margin:2px 0 14px;align-items:center}
-.lg{font-size:12px;color:var(--muted)}.lg b{color:var(--fg)}
+.lg{font-size:12px;color:var(--muted)}.lg b{color:var(--fg)}.muted-note{font-style:italic;margin-left:auto}
 .dot{display:inline-block;width:11px;height:11px;border-radius:50%;margin-right:7px;vertical-align:-1px}
 .dot.folder{background:transparent;border:1.5px solid var(--line)}
 .tree{font-size:14px}.tree ul{list-style:none;margin:0;padding-left:20px;border-left:1px dotted var(--line)}
@@ -230,14 +239,14 @@ footer{margin-top:26px;color:var(--muted);font-size:11px;border-top:1px solid va
 <header><h1>rollout <b>→ ${esc(s.target)}</b></h1><div class="sub">${esc(s.site.sourceUrl || '')}${s.site.liveHost ? ` · ${esc(s.site.liveHost)}` : ''} · ${esc(s.generatedAt.slice(0, 16).replace('T', ' '))} · rendered in the project's design identity</div></header>
 
 <div class="cards">
-  <div class="card"><div class="n">${s.pages.length}</div><div class="l">pages identified</div></div>
-  <div class="card"><div class="n">${s.stageCount.optimised + s.stageCount.deployed}</div><div class="l">delivered (deployed+)</div></div>
-  <div class="card"><div class="n">${s.blocks.converted}<span style="font-size:15px;color:var(--muted)">/${s.blocks.total}</span></div><div class="l">blocks converted</div></div>
+  <div class="card"><div class="n">${total}</div><div class="l">pages identified</div></div>
+  <div class="card"><div class="n">${s.stageCount.deployed}<span style="font-size:15px;color:var(--muted)">/${total}</span></div><div class="l">deployed or beyond</div></div>
+  <div class="card"><div class="n">${s.stageCount.optimised}<span style="font-size:15px;color:var(--muted)">/${total}</span></div><div class="l">optimised</div></div>
   <div class="card"><div class="n">${q ? q.overall : '—'}</div><div class="l">quality health</div></div>
 </div>
 
 <h2>Page tree</h2>
-<div class="legend">${legend}<span class="lg"><span class="tmpl-badge">T</span> template archetype</span></div>
+<div class="legend">${legend}<span class="lg"><span class="tmpl-badge">T</span> template archetype</span><span class="lg muted-note">counts are cumulative — pages reached this stage or beyond</span></div>
 <div class="panel tree"><ul>${renderNode(treeRoot, true)}</ul></div>
 
 <h2>Templates</h2>

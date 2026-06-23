@@ -250,16 +250,19 @@ read from the `:root` block of a migrated page (the canonical token interface,
 `token-contract.md`).
 
 Its centerpiece is a **page tree** of every identified page, nested by URL path,
-each node colour-coded by its **lifecycle stage**:
+each node colour-coded by the **most-advanced lifecycle stage** it has reached:
 
 ```
-identified → prototyped → migrated → deployed → optimised
+identified → prototyped → deployed → optimised
 ```
 
 The stage spans all three sources: `stardust/state.json` (agnostic
-`extracted/directed/prototyped/approved/migrated`), rollout coverage
-(`deployed`/`verified`), and optimize (`optimised` = verified **and** no open
-findings for the page). **Template archetypes** — the page that defines a
+`extracted/directed` → identified, `prototyped/approved/migrated` → prototyped),
+rollout coverage (`deployed`/`verified` → deployed), and optimize (`optimised` =
+verified **and** no open findings for the page). The legend **counts are
+cumulative** — a page counts toward every stage up to the one it reached, so
+`identified` equals the total page count, `prototyped` includes everything
+prototyped-or-beyond, and so on. **Template archetypes** — the page that defines a
 template for its siblings (`templates.json[].representativeSlug`) — are badged
 `T`. A page with open findings shows a red count.
 
